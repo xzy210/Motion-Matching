@@ -99,27 +99,49 @@ enum
     GAMEPAD_STICK_RIGHT,
 };
 
+static inline float key_axis(int posKey, int negKey) {
+    return (IsKeyDown(posKey)?1.0f:0.0f) - (IsKeyDown(negKey)?1.0f:0.0f);
+}
+
+// 完整替换：带键盘回退的摇杆读取
 vec3 gamepad_get_stick(int stick, const float deadzone = 0.2f)
 {
-    float gamepadx = GetGamepadAxisMovement(GAMEPAD_PLAYER, stick == GAMEPAD_STICK_LEFT ? GAMEPAD_AXIS_LEFT_X : GAMEPAD_AXIS_RIGHT_X);
-    float gamepady = GetGamepadAxisMovement(GAMEPAD_PLAYER, stick == GAMEPAD_STICK_LEFT ? GAMEPAD_AXIS_LEFT_Y : GAMEPAD_AXIS_RIGHT_Y);
-    float gamepadmag = sqrtf(gamepadx*gamepadx + gamepady*gamepady);
-    
-    if (gamepadmag > deadzone)
+    // 默认用手柄轴
+    float x = GetGamepadAxisMovement(GAMEPAD_PLAYER, stick == GAMEPAD_STICK_LEFT ? GAMEPAD_AXIS_LEFT_X : GAMEPAD_AXIS_RIGHT_X);
+    float y = GetGamepadAxisMovement(GAMEPAD_PLAYER, stick == GAMEPAD_STICK_LEFT ? GAMEPAD_AXIS_LEFT_Y : GAMEPAD_AXIS_RIGHT_Y);
+
+    // 无手柄则回退键盘
+    if (!IsGamepadAvailable(GAMEPAD_PLAYER))
     {
-        float gamepaddirx = gamepadx / gamepadmag;
-        float gamepaddiry = gamepady / gamepadmag;
-        float gamepadclippedmag = gamepadmag > 1.0f ? 1.0f : gamepadmag*gamepadmag;
-        gamepadx = gamepaddirx * gamepadclippedmag;
-        gamepady = gamepaddiry * gamepadclippedmag;
+        if (stick == GAMEPAD_STICK_LEFT)
+        {
+            x = (IsKeyDown(KEY_D) ? 1.0f : 0.0f) - (IsKeyDown(KEY_A) ? 1.0f : 0.0f);
+            y = (IsKeyDown(KEY_S) ? 1.0f : 0.0f) - (IsKeyDown(KEY_W) ? 1.0f : 0.0f);
+        }
+        else
+        {
+            x = (IsKeyDown(KEY_RIGHT) ? 1.0f : 0.0f) - (IsKeyDown(KEY_LEFT) ? 1.0f : 0.0f);
+            y = (IsKeyDown(KEY_DOWN) ? 1.0f : 0.0f) - (IsKeyDown(KEY_UP) ? 1.0f : 0.0f);
+        }
+    }
+
+    // 死区/非线性缩放
+    float mag = sqrtf(x*x + y*y);
+    if (mag > deadzone)
+    {
+        float dirx = x / mag;
+        float diry = y / mag;
+        float clipped = mag > 1.0f ? 1.0f : mag*mag;
+        x = dirx * clipped;
+        y = diry * clipped;
     }
     else
     {
-        gamepadx = 0.0f;
-        gamepady = 0.0f;
+        x = 0.0f;
+        y = 0.0f;
     }
-    
-    return vec3(gamepadx, 0.0f, gamepady);
+
+    return vec3(x, 0.0f, y);
 }
 
 //--------------------------------------
@@ -151,7 +173,10 @@ float orbit_camera_update_distance(
     float gamepadzoom = 
         IsGamepadButtonDown(GAMEPAD_PLAYER, GAMEPAD_BUTTON_LEFT_TRIGGER_1)  ? +1.0f :
         IsGamepadButtonDown(GAMEPAD_PLAYER, GAMEPAD_BUTTON_RIGHT_TRIGGER_1) ? -1.0f : 0.0f;
-        
+
+    if (IsKeyDown(KEY_Q)) gamepadzoom += 1.0f;
+    if (IsKeyDown(KEY_E)) gamepadzoom -= 1.0f;
+
     return clampf(distance +  10.0f * dt * gamepadzoom, 0.1f, 100.0f);
 }
 
@@ -186,7 +211,8 @@ void orbit_camera_update(
 
 bool desired_strafe_update()
 {
-    return IsGamepadButtonDown(GAMEPAD_PLAYER, GAMEPAD_BUTTON_LEFT_TRIGGER_2) > 0.5f;
+    return IsGamepadButtonDown(GAMEPAD_PLAYER, GAMEPAD_BUTTON_LEFT_TRIGGER_2) > 0.5f
+        || IsKeyDown(KEY_LEFT_SHIFT);
 }
 
 void desired_gait_update(
@@ -195,10 +221,13 @@ void desired_gait_update(
     const float dt,
     const float gait_change_halflife = 0.1f)
 {
+    float walk = IsGamepadButtonDown(GAMEPAD_PLAYER, GAMEPAD_BUTTON_RIGHT_FACE_DOWN) ? 1.0f : 0.0f;
+    if (IsKeyDown(KEY_SPACE)) walk = 1.0f;
+
     simple_spring_damper_exact(
         desired_gait, 
         desired_gait_velocity,
-        IsGamepadButtonDown(GAMEPAD_PLAYER, GAMEPAD_BUTTON_RIGHT_FACE_DOWN) ? 1.0f : 0.0f,
+        walk,
         gait_change_halflife,
         dt);
 }
